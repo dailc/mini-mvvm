@@ -1,7 +1,11 @@
 <!--
 	极简版MVVM，hello world级别
 	实现了双向绑定
-	2-包括数据属性递归绑定的支持（增加了命名空间功能）
+	step2-
+	包括数据属性递归绑定的支持（增加了命名空间功能-setDataByNamespace）
+	解决数据引用切断后的重新绑定问题，
+	（为了解决这个问题，需要每次get时都进行依赖添加判断），
+	所以，每一个watcher中要添加自己的depids
 -->
 <!DOCTYPE html>
 <html>
@@ -9,87 +13,48 @@
     <head>
         <meta charset="UTF-8">
         <meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0" name="viewport" />
-        <title>极简版MVVM，hello world级别</title>
+        <title>极简版MVVM，hello world级别02</title>
     </head>
 
     <body>
         <div id="app">
             <input type="text" v-model="text">{{text}}
             <p>{{text}}</p>
-            
+
             <input type="text" v-model="child.text">{{child.text}}
             <p>{{child.text}}</p>
         </div>
         <script>
             'use strict';
 
-            /**
-             * 这里的背景：
-             * 一个数据绑定若干个展示DOM（观察者们）
-             * 一个数据绑定若干个控制DOM（带输入指令属性的DOM，一般通过input等改变）,
-             * 每一个对应的控制DOM改变，都会带来数据的同步更新，
-             * 当然，一般每一个控制DOM自身同时也是一个观察者
-             * 
-             * 先了解，双向绑定的意思一般是：
-             * js修改数据 -> 数据变化 -> 该数据绑定的所有展示DOM(观察者们)都需更新
-             * input（控制DOM）更新 -> 数据同步更新 -> 该数据绑定的所有展示DOM(观察者们)都需更新
-             * 
-             * 然后接下来将双向绑定分解为两个单向绑定：
-             * 
-             * 
-             * 数据 -> 视图的单向绑定流程为：
-             * 1.Observe监听数据（每一个数据属性都有一个dep依赖管理，管理着自己的观察者Watcher），
-             * 数据的get中，如果检测到Dep.target存在，则将它添加到dep的观察者队列中
-             * 
-             * 2.Compile编译DOM时，每一个需要绑定数据的DOM节点就是一个watcher，
-             * 初始化watcher时，Dep.target指向这个watcher，同时触发数据的get，
-             * 因此数据会将这个watcher添加到自己的dep的观察者队列中
-             * 至此，M->V的单向绑定已经OK。
-             * 
-             * 3.此后，任何的数据更新，都会带动它对应的dep中所有的Watcher更新，对应的视图也就自然更新了。
-             * 
-             * 
-             * 视图 -> 数据的单向绑定流程为：
-             * 1.Compile编译DOM时，解析指令（v-model），
-             * 如果检测的带这个指令的DOM，则监听它对应的input change事件，
-             * 触发这个事件中意味着视图变了，因此直接更新对应的数据，
-             * 解析指令完毕后需移除这个DOM的（v-model）属性，
-             * 至此，V-M的单向绑定已经OK。
-             * 
-             * 2.注意，数据同步更新时，由于Watcher的存在，会带动它对应的dep中所有的Watcher更新，
-             * 所以，其它绑定该数据的视图也会被带动更新
-             * 
-             * 3.Compile时，会先将跟节点el转换成文档碎片fragment进行解析编译操作，
-             * 解析完成后，再将fragment添加回原来的真实dom节点中
-             */
-
             function Observer(data) {
                 this.walk(data);
             }
 
             Observer.prototype.walk = function(data) {
+                if (typeof data !== 'object') {
+                    return;
+                }
                 // 遍历，将对象所有的属性进行监听，包括递归
                 Object.keys(data).forEach((name) => {
-                    if (typeof data[name] === 'object') {
-                        new Observer(data[name]);
-                    } else {
-                        this.defineReactive(data, name, data[name]);
-                    }
+                    this.defineReactive(data, name, data[name]);
                 });
             };
 
             Observer.prototype.defineReactive = function(data, key, val) {
                 // 每一个绑定数据的依赖管理，管理着所有需要跟随这个数据更新的Watcher
                 const dep = new Dep();
+                let childObj = new Observer(val);
 
                 Object.defineProperty(data, key, {
                     get: function getter() {
-                        console.log('尝试读取：' + key + ', 值为：' + val);
+                        // console.log('尝试读取：' + key + ', 值为：' + val);
                         if (Dep.target) {
-                            // 如果有观察者，添加观察者
-                            // 这一步只会在对应Watcher初始化时才会走到
-                            // 其余时候这个key对应的target是null
-                            dep.addWatcher(Dep.target);
+                            console.log('观察者观察数据：' + key + ', 值为：' + val)
+                            // 如果有观察者（Dep.target）
+                            // 观察者开始观察这个数据
+                            // 这样只要数据有变化就会通知观察者
+                            Dep.target.addDep(dep);
                         }
 
                         return val;
@@ -100,13 +65,18 @@
                         }
                         console.log(key + '属性改变成了：' + newValue);
                         val = newValue;
+                        // 新的值是object的话，进行监听
+                        childObj = new Observer(newValue);
                         // 通知这个属性的所有观察者，这样就实现了m->v
                         dep.notify();
                     }
                 });
-            }
+            };
+            
+            let uuid = 0;
 
             function Dep() {
+                this.id = uuid++;
                 this.watchers = [];
             }
 
@@ -127,8 +97,34 @@
             Dep.target = null;
 
             function Watcher(vm, node, namespace) {
+                this.depIds = {};
+                this.vm = vm;
+                this.node = node;
+                this.namespace = namespace;
+                // 此处为了触发属性的getter，从而在dep添加自己，结合Observer更易理解
+                this.value = this.get();
+            }
+
+            Watcher.prototype.update = function update() {
+                const value = this.get();
+                const oldVal = this.value;
+
+                if (value !== oldVal) {
+                    this.value = value;
+                    // 目前赋值只考虑了文本与输入框节点的值更新
+                    // 其实完全可以抽取成一个回调，由外部自己处理变动后的事件
+                    // 每次update时，这个Watcher都会将它对应的视图更至最新（用最新的数据赋值）
+                    if (this.node.nodeType === 1 && this.node.tagName.toLowerCase() === 'input') {
+                        this.node.value = value || '';
+                    } else {
+                        this.node.nodeValue = value || '';
+                    }
+                }
+
+            };
+
+            Watcher.prototype.get = function get() {
                 /**
-                 * 每次初始化时的逻辑:
                  * 1.Dep.target设为自己
                  * 2.调用对应数据的get，这样数据就知道有Watcher需要添加了
                  * 3.对应数据的dep会将这个Watcher添加到它的观察者队列中
@@ -136,29 +132,24 @@
                  * 5.Dep.target再设为null，所以确保了Watcher只会被添加一次
                  */
                 Dep.target = this;
-                this.vm = vm;
-                this.node = node;
-                this.namespace = namespace;
-                this.update();
-                Dep.target = null;
-            }
+                // 触发getter，添加自己到属性订阅器中
+                // 如果是初始化时，此时target刚好为这个watcher，则会被添加到数据的watcher里
+                const value = this.vm.getDataByNamespace(this.namespace);
 
-            Watcher.prototype.update = function update() {
-                this.get();
-                // 目前赋值只考虑了文本与输入框节点的值更新
-                // 其实完全可以抽取成一个回调，由外部自己处理变动后的事件
-                // 每次update时，这个Watcher都会将它对应的视图更至最新（用最新的数据赋值）
-                if (this.node.nodeType === 1 && this.node.tagName.toLowerCase() === 'input') {
-                    this.node.value = this.value || '';
-                } else {
-                    this.node.nodeValue = this.value || '';
-                }
+                Dep.target = null;
+
+                return value;
             };
 
-            Watcher.prototype.get = function get() {
-                // 调用对应数据的get，获取最新值
-                // 如果是初始化时，此时target刚好为这个watcher，则会被添加到数据的watcher里
-                this.value = this.vm.getDataByNamespace(this.namespace);
+            // 每个watcher都可以管理自己的依赖
+            // 确保不重复添加
+            // 也确保就算引用切断，每次调用时可以重新添加
+            Watcher.prototype.addDep = function addDep(dep) {
+                if (!this.depIds.hasOwnProperty(dep.id)) {
+                    // 如果依赖中没有当前watcher，这个依赖将当前watcher添加进去
+                    dep.addWatcher(this);
+                    this.depIds[dep.id] = dep;
+                }
             };
 
             function Compile(node, vm) {
@@ -220,6 +211,8 @@
                     // 添加一个Watcher，因为展示节点需要跟随数据的更新而更新
                     // 初始化Watcher时就会自动赋值的
                     namespace && new Watcher(vm, node, namespace);
+                    // 初始化也需要更新一次，其实这次更新是可以提取成一个函数的
+                    node.nodeValue = vm.getDataByNamespace(namespace) || '';
                 }
             };
 
@@ -244,6 +237,8 @@
                         // 让这个更新DOM跟随数据更新的
                         // 初始化Watcher时就会自动赋值的
                         namespace && new Watcher(vm, node, namespace);
+                        // 初始化也需要更新一次，其实这次更新是可以提取成一个函数的
+                        node.value = vm.getDataByNamespace(namespace) || '';
                     }
                 }
 
@@ -256,32 +251,32 @@
                 new Observer(this.data);
                 new Compile(this.el, this);
             }
-            
+
             MVVM.prototype.getDataByNamespace = function getDataByNamespace(namespace) {
                 const namespaceArr = namespace.split('.');
                 let val = this.data;
-                
+
                 namespaceArr && namespaceArr.forEach(function(key) {
                     if (val) {
                         val = val[key];
                     }
                 });
-                
+
                 return val;
             };
-            
+
             MVVM.prototype.setDataByNamespace = function setDataByNamespace(namespace, newVal) {
                 const namespaceArr = namespace.split('.');
                 const len = namespaceArr.length;
                 let parent = this.data;
-                
+
                 for (let i = 0; i < len - 1; i++) {
                     if (parent) {
                         parent = parent[namespaceArr[i]];
                     }
-                    
+
                 }
-                
+
                 if (parent) {
                     parent[namespaceArr[len - 1]] = newVal;
                 }
@@ -296,6 +291,12 @@
                     }
                 }
             });
+
+            setTimeout(function() {
+                vm.data.child = {
+                    text: 'wor22ld!',
+                };
+            }, 500);
         </script>
     </body>
 
