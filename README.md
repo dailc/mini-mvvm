@@ -10,8 +10,4 @@ hello world系列。
 
 可以分别展开讲述下，从最简单，到后来的一步一步增加
 
-__M-V的绑定：__
-
-
-
-[mvvm_helloworld.html](mvvm_helloworld.html)
+[helloworld/mvvm_helloworld.html](helloworld/mvvm_helloworld.html)

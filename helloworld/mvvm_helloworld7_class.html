@@ -1,0 +1,491 @@
+<!--
+	极简版MVVM，hello world级别
+	实现了双向绑定
+	step:7
+	增加节点样式css-class的绑定
+	增加节点html的绑定，
+	compile中需要增加v-html，v-class指令,
+	指令处理时，抽取复用（包括指令工具类以及更新者）
+-->
+<!DOCTYPE html>
+<html>
+
+    <head>
+        <meta charset="UTF-8">
+        <meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0" name="viewport" />
+        <title>极简版MVVM，hello world级别07</title>
+        <style>
+            .myclass {
+                font-size: 30px;
+            }
+            
+            .myclass2 {
+                font-size: 10px;
+            }
+        </style>
+    </head>
+
+    <body>
+        <div id="app">
+            <input type="text" v-model="text">
+
+            <input type="text" v-model="child.text">
+            <div v-class="className" class="defaultclass">
+                <p v-html="htmlStr"></p>
+            </div>
+            <p>{{getHelloWord}}</p>
+            <p>{{getHelloWord2}}</p>
+
+            <button v-on:click="clickBtn">change model</button>
+        </div>
+        <script>
+            'use strict';
+
+            function Observer(data) {
+                this.walk(data);
+            }
+
+            Observer.prototype.walk = function(data) {
+                if (typeof data !== 'object') {
+                    return;
+                }
+                // 遍历，将对象所有的属性进行监听，包括递归
+                Object.keys(data).forEach((name) => {
+                    this.defineReactive(data, name, data[name]);
+                });
+            };
+
+            Observer.prototype.defineReactive = function(data, key, value) {
+                // 每一个绑定数据的依赖管理，管理着所有需要跟随这个数据更新的Watcher
+                const dep = new Dep();
+                let childObj = new Observer(value);
+
+                Object.defineProperty(data, key, {
+                    configurable: false,
+                    enumerable: true,
+                    get: function getter() {
+                        // console.log('尝试读取：' + key + ', 值为：' + value);
+                        if (Dep.target) {
+                            console.log('观察者观察数据：' + key + ', 值为：' + value)
+                            // 如果有观察者（Dep.target）
+                            // 观察者开始观察这个数据
+                            // 这样只要数据有变化就会通知观察者
+                            Dep.target.addDep(dep);
+                        }
+
+                        return value;
+                    },
+                    set: function setter(newValue) {
+                        if (newValue === value) {
+                            return;
+                        }
+                        console.log(key + '属性改变成了：' + newValue);
+                        value = newValue;
+                        // 新的值是object的话，进行监听
+                        childObj = new Observer(newValue);
+                        // 通知这个属性的所有观察者，这样就实现了m->v
+                        dep.notify();
+                    }
+                });
+            }
+
+            let uuid = 0;
+
+            function Dep() {
+                this.id = uuid++;
+                this.watchers = [];
+            }
+
+            Dep.prototype.addWatcher = function addWatcher(watcher) {
+                // 极简版的 watcher只考虑初始化时添加
+                this.watchers.push(watcher);
+            };
+
+            Dep.prototype.notify = function notify() {
+                this.watchers.forEach((watcher) => {
+                    // 每次数据改变时，它的依赖管理会通知它所有的watcher
+                    // 然后watcher依次更新自己的视图
+                    watcher.update();
+                });
+            };
+
+            // 用来判断当前是哪一个Watcher初始化
+            Dep.target = null;
+
+            function Watcher(vm, namespace, cb) {
+                this.depIds = {};
+                this.vm = vm;
+                this.cb = cb;
+                // getter用来获取命名空间
+                this.getter = this.parseGetterByNamespace(namespace);
+                // 此处为了触发属性的getter，从而在dep添加自己，结合Observer更易理解
+                this.value = this.get();
+            }
+
+            Watcher.prototype.update = function update() {
+                const value = this.get();
+                const oldValue = this.value;
+
+                if (value !== oldValue) {
+                    this.value = value;
+                    // 执行Compile中绑定的回调，更新视图
+                    this.cb.call(this.vm, value, oldValue);
+                }
+            };
+
+            Watcher.prototype.get = function get() {
+                /**
+                 * 1.Dep.target设为自己
+                 * 2.调用对应数据的get，这样数据就知道有Watcher需要添加了
+                 * 3.对应数据的dep会将这个Watcher添加到它的观察者队列中
+                 * 4.以后数据的任何变动（set），就会通知这个Watcher
+                 * 5.Dep.target再设为null，所以确保了Watcher只会被添加一次
+                 */
+                Dep.target = this;
+                // 触发getter，添加自己到属性订阅器中
+                // 如果是初始化时，此时target刚好为这个watcher，则会被添加到数据的watcher里
+                // 获取的是vm中对应的命名空间
+                const value = this.getter.call(this.vm, this.vm);
+
+                Dep.target = null;
+
+                return value;
+            };
+
+            // 每个watcher都可以管理自己的依赖
+            // 确保不重复添加
+            // 也确保就算引用切断，每次调用时可以重新添加
+            Watcher.prototype.addDep = function addDep(dep) {
+                if (!this.depIds.hasOwnProperty(dep.id)) {
+                    // 如果依赖中没有当前watcher，这个依赖将当前watcher添加进去
+                    dep.addWatcher(this);
+                    this.depIds[dep.id] = dep;
+                }
+            };
+
+            Watcher.prototype.parseGetterByNamespace = function parseGetterByNamespace(namespace) {
+                if (/[^\w.$]/.test(namespace)) {
+                    // 非法命名空间
+                    throw new Error('错误，Watcher必须接受一个命名空间');
+                }
+
+                const namespaceArr = namespace.split('.');
+
+                // 返回一个命名空间 getter
+                return function(val) {
+                    namespaceArr && namespaceArr.forEach(function(key) {
+                        if (val) {
+                            val = val[key];
+                        }
+                    });
+
+                    return val;
+                };
+
+            };
+
+            function Compile(node, vm) {
+                this.vm = vm;
+                this.node = node;
+
+                // 现将所有的节点劫持到frag中，然后再进行初始化（譬如解析指令，绑定数据等）
+                // 然后解析完毕后再将frag重新添加会DOM中，这是一种优化手段（不过现代浏览器就算不这样做，也有自己的优化的）
+                // 注意，这里是真的“劫持”，会从DOM树中消失，劫持到frag中
+                const frag = this.nodeToFragment(this.node, this.vm);
+
+                // 劫持完毕后，再frag中编译所有元素，包括解析指令，绑定数据等
+                this.compile(frag, this.vm);
+                // 上面所有的节点都已经被劫持到frag中了，所以这里再重新添加回DOM
+                this.node.appendChild(frag);
+            }
+
+            Compile.prototype.nodeToFragment = function nodeToFragment(node, vm) {
+                const frag = document.createDocumentFragment();
+                let child;
+
+                while (child = node.firstChild) {
+                    frag.appendChild(child);
+                }
+
+                return frag;
+            };
+
+            // 编译，目前只识别{{}}展示DOM和input输入DOM
+            Compile.prototype.compile = function compile(node, vm) {
+                // 遍历循环编译所有的节点，这样就不会错漏
+                const childNodes = node.childNodes;
+
+                [].slice.call(childNodes).forEach((node) => {
+                    if (node.nodeType === 1) {
+                        // 元素节点
+                        this.compileElement(node, vm);
+                    } else if (node.nodeType === 3) {
+                        // 文本节点
+                        this.compileText(node, vm);
+                    }
+
+                    if (node.childNodes && node.childNodes.length) {
+                        // 递归编译
+                        this.compile(node, vm);
+                    }
+                });
+            };
+
+            Compile.prototype.compileText = function compileText(node, vm) {
+                const textReg = /[{]{2}(.*)[}]{2}/;
+
+                // 节点类型为text
+                // 需要识别textReg
+                if (textReg.test(node.nodeValue)) {
+                     // 获取正则刚刚匹配的捕获组
+                    const namespace = RegExp.$1;
+                    
+                    // 它的作用和文本指令一样
+                    directiveUtil.text(node, vm, namespace);
+                }
+            };
+
+            Compile.prototype.compileElement = function compileElement(node, vm) {
+                // 节点类型为元素
+                // 需要解析属性，看看有没有指令
+                [].slice.call(node.attributes).forEach((attr) => {
+                    this.handleDirective(node, vm, attr);
+                })
+            };
+
+            Compile.prototype.handleDirective = function handleDirective(node, vm, attr) {
+                const REG_DIRECTIVE = /^v-/;
+                const REG_DIRECTIVE_EVENT = /^v-on/;
+                const directive = attr.nodeName;
+                const expression = attr.nodeValue;
+
+                if (REG_DIRECTIVE.test(directive)) {
+                    // 路径，如v-html、v-class分别获取html、class
+                    const dir = directive.substring(2);
+                    // 如果是指令
+                    if (REG_DIRECTIVE_EVENT.test(directive)) {
+                        // 事件指令
+                        directiveUtil.handleEvent(node, vm, expression, directive);
+                    } else {
+                        // 普通指令，存在指令处理方法采取处理
+                        // 注意，this指针
+                        directiveUtil[dir] && directiveUtil[dir](node, vm, expression);
+                    }
+
+                    // 移除已经解析完毕的指令
+                    node.removeAttribute(directive);
+                }
+            };
+
+            // 指令工具合集，抽象并复用代码
+            const directiveUtil = {
+                text: function(node, vm, expression) {
+                    this.bind(node, vm, expression, 'text');
+                },
+                class: function(node, vm, expression) {
+                    this.bind(node, vm, expression, 'class');
+                },
+                html: function(node, vm, expression) {
+                    this.bind(node, vm, expression, 'html');
+                },
+                model: function(node, vm, expression) {
+                    this.bind(node, vm, expression, 'model');
+
+                    // model除了要单向绑定，还需主动监听
+                    // 获取v-model绑定的属性名，将视图和model绑定
+                    const namespace = expression;
+
+                    node.addEventListener('input', (e) => {
+                        // 监听到视图更新，然后同步更新数据，这样也会带动展示视图的更新
+                        // 设置这个命名空间下的新值
+                        this.setVMValByNamespace(vm, namespace, e.target.value);
+                    });
+                },
+                // bind的作用是，数据更新时，让视图也更新
+                bind: function(node, vm, expression, dir) {
+                    // 找到更新函数
+                    const updaterFn = updater[dir + 'Updater'];
+                    const namespace = expression;
+
+                    if (updaterFn) {
+                        // 先更新
+                        updaterFn(node, this.getVMValByNamespace(vm, namespace));
+                        // 让这个更新DOM跟随数据更新的
+                        new Watcher(vm, namespace, function(value, oldValue) {
+                            updaterFn(node, value, oldValue);
+                        });
+                    }
+                },
+
+                // 处理事件
+                handleEvent: function(node, vm, expression, directive) {
+                    // 事件监听，譬如v-on:click获取click
+                    const eventType = directive.split(':')[1];
+                    const fn = vm.$options.methods && vm.$options.methods[expression];
+
+                    if (eventType && fn) {
+                        // 冒泡事件模型即可
+                        node.addEventListener(eventType, fn.bind(vm), false);
+                    }
+                },
+                setVMValByNamespace: function(vm, namespace, newVal) {
+                    const namespaceArr = namespace.split('.');
+                    const len = namespaceArr.length;
+                    let parent = vm;
+
+                    for (let i = 0; i < len - 1; i++) {
+                        if (parent) {
+                            parent = parent[namespaceArr[i]];
+                        }
+
+                    }
+
+                    if (parent) {
+                        parent[namespaceArr[len - 1]] = newVal;
+                    }
+                },
+                getVMValByNamespace: function(vm, namespace) {
+                    const namespaceArr = namespace.split('.');
+                    // 这里要是vm而不是vm.$data，否则计算元素将无法获取
+                    let val = vm;
+
+                    namespaceArr && namespaceArr.forEach(function(key) {
+                        if (val) {
+                            val = val[key];
+                        }
+                    });
+
+                    return val;
+                }
+
+            };
+
+            const updater = {
+                // 文本
+                textUpdater: function textUpdater(node, value) {
+                    // 相比innerText，textContent可以防止xss攻击，而且通常具有更好性能
+                    // 它会返回隐藏元素
+                    node.textContent = typeof value == 'undefined' ? '' : value;
+                },
+                // html
+                htmlUpdater: function htmlUpdater(node, value) {
+                    node.innerHTML = typeof value == 'undefined' ? '' : value;
+                },
+                // css的class
+                classUpdater: function classUpdater(node, value, oldValue) {
+                    let className = node.className;
+                    
+                    className = className.replace(oldValue, '').replace(/\s$/, '');
+                    
+                    const space = (className && String(value)) ? ' ' : '';
+                    
+                    node.className = className + space + value;
+                },
+                // model，输入节点值
+                modelUpdater: function modelUpdater(node, value) {
+                    node.value = typeof value == 'undefined' ? '' : value;
+                },
+            };
+
+            function MVVM(options) {
+                this.$el = document.querySelector(options.el);
+                this.$data = options.data;
+                // 这个对象用来获取传入的所有可能配置
+                this.$options = options;
+
+                // 属性代理，实现 vm.xxx -> vm.data.xxx
+                Object.keys(this.$data).forEach((key) => {
+                    // 请不要在data中输入methods等关键字符
+                    this.proxyData(key);
+                });
+
+                // 初始化initComputed，这样计算元素也可以当作一个属性
+                this.initComputed();
+
+                new Observer(this.$data);
+                new Compile(this.$el, this);
+            }
+
+            MVVM.prototype.initComputed = function initComputed() {
+                const computed = this.$options.computed;
+
+                if (typeof computed === 'object') {
+                    // 遍历，找到所有的计算元素
+                    Object.keys(computed).forEach((key) => {
+                        Object.defineProperty(this, key, {
+                            // 如果是函数，直接就作为get，否则可能是一个对象，使用对象的get
+                            get: typeof computed[key] === 'function' ?
+                                computed[key] : computed[key].get,
+                            set: function() {}
+                        });
+                    });
+                }
+            };
+
+            MVVM.prototype.proxyData = function proxyData(key) {
+                Object.defineProperty(this, key, {
+                    configurable: false,
+                    enumerable: true,
+                    get: function proxyGetter() {
+                        return this.$data[key];
+                    },
+                    set: function proxySetter(newVal) {
+                        this.$data[key] = newVal;
+                    }
+                });
+            };
+
+            MVVM.prototype.$watch = function $watch(namespace, cb) {
+                new Watcher(this, namespace, cb);
+            };
+
+            const vm = new MVVM({
+                el: '#app',
+                data: {
+                    text: 'hello!',
+                    child: {
+                        text: 'world!',
+                    },
+                    className: 'myclass',
+                    htmlStr: '<span style="color: #f00;">red</span>',
+                },
+                computed: {
+                    // 可以理解为，最终实际上是作为data中的一员存在（只不过通过getter获取）
+                    getHelloWord: function() {
+                        return this.text + this.child.text;
+                    },
+                    getHelloWord2: {
+                        get: function() {
+                            return this.text + this.child.text + '~~~222';
+                        }
+                    }
+                },
+                methods: {
+                    clickBtn: function(e) {
+                        const randomStrArr = ['childOne', 'childTwo', 'childThree'];
+
+                        this.child.text = randomStrArr[parseInt(Math.random() * 3)];
+                        this.className = this.className === 'myclass' ? 'myclass2' : 'myclass';
+                    }
+                }
+            });
+
+            vm.$watch('child.text', function(val, oldVal) {
+                console.log('\n\n改变child.text，val：' + val + '，oldVal：' + oldVal);
+            });
+
+            // 由于watcher的关系，数据变更时，getHelloWord也会得到通知
+            // 同时，对应的视图也更新了（会重新获取getHelloWord的get）
+            vm.$watch('getHelloWord', function(val, oldVal) {
+                console.log('\n\n改变getHelloWord，val：' + val + '，oldVal：' + oldVal);
+            });
+
+            setTimeout(function() {
+                vm.child = {
+                    text: 'wor22ld!',
+                };
+            }, 500);
+        </script>
+    </body>
+
+</html>
