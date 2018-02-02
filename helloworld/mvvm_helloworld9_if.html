@@ -1,20 +1,9 @@
 <!--
 	极简版MVVM，hello world级别
 	实现了双向绑定
-	step:8
-	增加列表渲染功能（暂时不考虑优化，最简单的重现列表先），
-	同时递归也变为支持数组，默认还需加上push()、pop()的支持，
-	数组的方法监听需要接住窃取Array.prototype实现
-	
-	小修改
-	数据的get里添加dep依赖抽取成一个函数，
-	抽取observe观察函数，
-	每一个observer加一个自己的dep，用来方便数组改变时通知
-	还有一个关键就是：value的dep中如何添加对应key中的watcher
-	
-	由于 JavaScript 的限制， Vue 不能检测以下变动的数组：
-	vm.items[index] = newValue
-	vm.items.length = newLength
+	step:9
+	增加了v-if指令的解析，这里用了最简单的实现，没有考虑缓存、效率等各种因素，
+	if指令一般会配合else指令一起解析，然后每次
 -->
 <!DOCTYPE html>
 <html>
@@ -22,7 +11,7 @@
     <head>
         <meta charset="UTF-8">
         <meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0" name="viewport" />
-        <title>极简版MVVM，hello world级别08</title>
+        <title>极简版MVVM，hello world级别09</title>
         <style>
             .myclass {
                 font-size: 30px;
@@ -52,17 +41,19 @@
                     {{ parentMessage }} - {{ item.message }}
                 </li>
             </ul>
+            
+            <div v-if="ifConfidition">
+              if-condition:<p>{{getHelloWord}}</p>
+            </div>
+            <div v-else>
+              else-condition:<p>{{getHelloWord2}}</p>
+            </div>
         </div>
         <script>
             'use strict';
 
             /**
-             * 涉及到数组监听时，除了要监听数组本身引用的变动，还需监听push、pop等事件
-             * 所以，需要如下几步：
-             * 
-             * 1.先把原生 Array 的原型方法继承下来
-             * 2.对继承后的对象使用 Object.defineProperty 做一些拦截操作
-             * 3.把加工后可以被拦截的原型，赋值到需要被拦截的 Array 类型的数据的原型上
+             * vue中，遇到if时，会先去nextElementSibling解析相关else语句
              */
             (function() {
                 const arrayPrototype = Array.prototype;
@@ -498,6 +489,49 @@
                         });
                     }
                 },
+                // if操作
+                if: function(node, vm, expression) {
+                    // 需要先找到下一个的else模版，然后通过display控制显隐（要求必须是相邻的，否则无效）
+                    const next = node.nextElementSibling;
+                    // if对应的变量属性
+                    const namespace = expression;
+                    // 缓存以前的真值
+                    let oldValue;
+                    let elseEl;
+                
+                    if (next && next.getAttribute('v-else') !== undefined) {
+                        // 先移除v-else指令，有可能是空
+                        next.removeAttribute('v-else');
+                        elseEl = next;
+                    }
+                    
+                    const update = (value) => {
+                        if (value === oldValue) {
+                            // 没有改变，就什么都不做
+                            return;
+                        }
+                        oldValue = value;
+                        
+                        if (value) {
+                            /**
+                             * 这里实际上这样用是不对的，但这里仅仅是为了演示就这样用了
+                             * 实际上，应该放到虚拟dom中，这样结合做才不会污染原有的布局
+                             * 但是这个示例截至目前为止还没有引入虚拟dom，所以就这样用了
+                             */
+                            node.style.display = 'block';
+                            elseEl && (elseEl.style.display = 'none');
+                        } else {
+                            node.style.display = 'none';
+                            elseEl && (elseEl.style.display = 'block');
+                        }
+                    };
+                    
+                    update(!!this.getVMValByNamespace(vm, namespace));
+
+                    new Watcher(vm, namespace, function(value, oldValue) {
+                        update(!!value);
+                    });
+                },
                 for: function(node, vm, expression) {
                     // for循环的必须单独写，目前只支持item in items形式
                     const REF_LIST_FOR = /(\w+)\s+in\s+(\w+)/;
@@ -627,7 +661,7 @@
                 // for循环
                 forUpdater: function forUpdater(node, value) {
                     node.innerHTML = typeof value == 'undefined' ? '' : value;
-                },
+                }
             };
 
             function MVVM(options) {
@@ -698,7 +732,8 @@
                         {
                             message: 'Bar'
                         }
-                    ]
+                    ],
+                    ifConfidition: true
                 },
                 computed: {
                     // 可以理解为，最终实际上是作为data中的一员存在（只不过通过getter获取）
@@ -718,7 +753,7 @@
 
                         this.child.text = randStr;
                         this.className = this.className === 'myclass' ? 'myclass2' : 'myclass';
-                        
+
                         vm.items.push({
                             message: randStr
                         });
@@ -735,7 +770,7 @@
             vm.$watch('getHelloWord', function(val, oldVal) {
                 console.log('\n\n改变getHelloWord，val：' + val + '，oldVal：' + oldVal);
             });
-            
+
             // 观察数组
             vm.$watch('items', function(val) {
                 // 数组的oldVal没有意义（因为可能是同一个引用）
@@ -754,7 +789,7 @@
                 }, , {
                     message: 'Bat2'
                 }];
-                
+
                 vm.items.pop({
                     message: 'haha2'
                 });
@@ -762,6 +797,7 @@
                 vm.items.push({
                     message: 'haha2'
                 });
+                vm.ifConfidition = false;
             }, 500);
         </script>
     </body>
