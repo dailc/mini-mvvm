@@ -28,8 +28,12 @@ hello world系列。
 
 - mvvm_helloworld9_if.html：增加if指令的支持
 
-- summary：最后总结归纳了下，拆分为多个文件，便于整体梳理（基于最后一次的改动）
+- summary：最后总结归纳了下，拆分为多个文件，便于整体梳理。
 
 基本上，一套走下来，会发现核心仍然是MVVM以及数据监听、DOM劫持等，其余的指令更多的都是附加，并不影响对整体的理解
+
+## AST&VDOM
+
+预计新增AST以及Virtual-Dom功能
 
 [helloworld/mvvm_helloworld.html](helloworld/mvvm_helloworld.html)

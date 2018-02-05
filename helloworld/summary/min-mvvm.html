@@ -1,0 +1,147 @@
+<!--
+	极简版MVVM示例
+	实现了双向绑定
+-->
+<!DOCTYPE html>
+<html>
+
+    <head>
+        <meta charset="UTF-8">
+        <meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0" name="viewport" />
+        <title>极简版MVVM</title>
+        <style>
+            .myclass {
+                font-size: 30px;
+            }
+            
+            .myclass2 {
+                font-size: 10px;
+            }
+        </style>
+    </head>
+
+    <body>
+        <div id="app">
+            <input type="text" v-model="text">
+
+            <input type="text" v-model="child.text">
+            <div v-class="className" class="defaultclass">
+                <p v-html="htmlStr"></p>
+            </div>
+            <p>{{getHelloWord}}</p>
+            <p>{{getHelloWord2}}</p>
+
+            <button v-on:click="clickBtn">change model</button>
+
+            <ul>
+                <li v-for="item in items">
+                    {{ parentMessage }} - {{ item.message }}
+                </li>
+            </ul>
+            
+            <div v-if="ifConfidition">
+              if-condition:<p>{{getHelloWord}}</p>
+            </div>
+            <div v-else>
+              else-condition:<p>{{getHelloWord2}}</p>
+            </div>
+        </div>
+        <script type="text/javascript" src="lang.js" ></script>
+        <script type="text/javascript" src="array.js" ></script>
+        <script type="text/javascript" src="dep.js" ></script>
+        <script type="text/javascript" src="watcher.js" ></script>
+        <script type="text/javascript" src="observer.js" ></script>
+        <script type="text/javascript" src="compile.js" ></script>
+        <script type="text/javascript" src="mvvm.js" ></script>
+        <script>
+            'use strict';
+
+            const vm = new MVVM({
+                el: '#app',
+                data: {
+                    text: 'hello!',
+                    child: {
+                        text: 'world!',
+                    },
+                    className: 'myclass',
+                    htmlStr: '<span style="color: #f00;">red</span>',
+                    parentMessage: 'Parent',
+                    items: [{
+                            message: 'Foo'
+                        },
+                        {
+                            message: 'Bar'
+                        }
+                    ],
+                    ifConfidition: true
+                },
+                computed: {
+                    // 可以理解为，最终实际上是作为data中的一员存在（只不过通过getter获取）
+                    getHelloWord: function() {
+                        return this.text + this.child.text;
+                    },
+                    getHelloWord2: {
+                        get: function() {
+                            return this.text + this.child.text + '~~~222';
+                        }
+                    }
+                },
+                methods: {
+                    clickBtn: function(e) {
+                        const randomStrArr = ['childOne', 'childTwo', 'childThree'];
+                        const randStr = randomStrArr[parseInt(Math.random() * 3)];
+
+                        this.child.text = randStr;
+                        this.className = this.className === 'myclass' ? 'myclass2' : 'myclass';
+
+                        vm.items.push({
+                            message: randStr
+                        });
+                        
+                        vm.ifConfidition = !vm.ifConfidition;
+                    }
+                }
+            });
+
+            vm.$watch('child.text', function(val, oldVal) {
+                console.log('\n\n改变child.text，val：' + val + '，oldVal：' + oldVal);
+            });
+
+            // 由于watcher的关系，数据变更时，getHelloWord也会得到通知
+            // 同时，对应的视图也更新了（会重新获取getHelloWord的get）
+            vm.$watch('getHelloWord', function(val, oldVal) {
+                console.log('\n\n改变getHelloWord，val：' + val + '，oldVal：' + oldVal);
+            });
+
+            // 观察数组
+            vm.$watch('items', function(val) {
+                // 数组的oldVal没有意义（因为可能是同一个引用）
+                // 当然，内部其实也可以通过每次数组方法后生成一个新数组来解决，但是没有必要
+                console.log('\n\n改变items，val：' + JSON.stringify(val));
+            });
+
+            setTimeout(function() {
+                vm.child = {
+                    text: 'wor22ld!',
+                };
+                vm.items = [{
+                    message: 'Foo2'
+                }, {
+                    message: 'Bar2'
+                }, , {
+                    message: 'Bat2'
+                }];
+
+                vm.items.pop({
+                    message: 'haha2'
+                });
+
+                vm.items.push({
+                    message: 'haha2'
+                });
+                vm.ifConfidition = false;
+            }, 500);
+        </script>
+    </body>
+
+</html>
